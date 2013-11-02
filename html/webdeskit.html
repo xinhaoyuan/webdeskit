@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <title></title>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <script type="text/javascript" src="zepto.min.js"></script>
+    <script type="text/javascript" src="webdeskit.js"></script>
+    <link href="webdeskit.css" rel="stylesheet" type="text/css" />
+  </head>
+  <body>
+    <div style="position: absolute; top: 10px; left: 10px; width: 300px; height: 500px;
+                background: rgba(0, 0, 0, 0.5); color: white;
+                padding: 8px; border-radius: 10px;">
+      <table width="100%" height="100%">
+        <tr height="0"><td>
+            <table width="100%">
+              <tr><td style="text-align: left">
+                  <div style="display: inline-block">Desktop Items</div>
+              </td><td style="text-align: right;">
+                  <div class="button" onclick="di.change_sort_method()">
+                    sort:<span id="di-sort-by">date</span>
+                  </div><div class="button" onclick="di.update()">update</div>
+              </td></tr>
+            </table>
+        </td></tr><tr><td height="100%" style="position: relative;">
+            <div style="position: absolute; top: 0px; bottom: 0px; left: 0px; right: 0px;
+                        overflow-x: hidden; overflow-y: auto"
+                 id="di-list">
+              <div>item 1</div>
+              <div>item 2</div>
+            </div>
+        </td></tr>
+    </div>
+  </body>
+</html>

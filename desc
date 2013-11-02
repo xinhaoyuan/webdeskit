@@ -1,0 +1,4 @@
+webdeskit-lib:prj/webdeskit/lib:
+webdeskit-main:prj/webdeskit/main:webdeskit-lib
+webdeskit-plugin-cmd:prj/webdeskit/plugin-cmd:webdeskit-lib
+webdeskit:prj/webdeskit:webdeskit-main webdeskit-plugin-cmd
