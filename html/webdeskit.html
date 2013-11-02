@@ -14,9 +14,17 @@
       <table width="100%" height="100%">
         <tr height="0"><td>
             <table width="100%">
-              <tr><td style="text-align: left">
-                  <div style="display: inline-block">Desktop Items</div>
-              </td><td style="text-align: right;">
+              <tr><td width="100%" style="position: relative; text-align: left">
+                  <div style="position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+                              border-radius: 5px; background: rgba(255, 255, 255, 0.7);
+                              padding: 3px;">
+                    <div class="selectable" contenteditable="true" 
+                         style="width: 100%;
+                                white-space: nowrap; overflow: hidden; 
+                                background: transparent; color: black; border: 0;
+                                vertical-align: center; outline: 0;"></div>
+                  </div>
+              </td><td width="0" style="text-align: right; white-space: nowrap;">
                   <div class="button" onclick="di.change_sort_method()">
                     sort:<span id="di-sort-by">date</span>
                   </div><div class="button" onclick="di.update()">update</div>
@@ -26,8 +34,6 @@
             <div style="position: absolute; top: 0px; bottom: 0px; left: 0px; right: 0px;
                         overflow-x: hidden; overflow-y: auto"
                  id="di-list">
-              <div>item 1</div>
-              <div>item 2</div>
             </div>
         </td></tr>
     </div>

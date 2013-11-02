@@ -5,6 +5,9 @@ function copyToClipboard(s) {
 
     args = [sys.GetEnv("WEBDESKIT_PATH") + "/bin/clip-put", s];
     sys.CmdOutput(args.length, args);
+
+    args = [sys.GetEnv("WEBDESKIT_PATH") + "/bin/notify-desktop", s + " copied to clipboard"];
+    sys.CmdOutput(args.length, args);
 }
 
 di.change_sort_method = function() {
