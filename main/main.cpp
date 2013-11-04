@@ -309,6 +309,20 @@ js_cb_get_desktop_focus(JSContextRef context,
 }
 
 static JSValueRef
+js_cb_toggle_dock(JSContextRef context,
+                  JSObjectRef function,
+                  JSObjectRef self,
+                  size_t argc,
+                  const JSValueRef argv[],
+                  JSValueRef* exception)
+{
+    if (gtk_window_get_type_hint(GTK_WINDOW(main_window)) == GDK_WINDOW_TYPE_HINT_DOCK)
+        gtk_window_set_type_hint(GTK_WINDOW(main_window), GDK_WINDOW_TYPE_HINT_DESKTOP);
+    gtk_window_set_type_hint(GTK_WINDOW(main_window), GDK_WINDOW_TYPE_HINT_DOCK);
+    return JSValueMakeNull(context);
+}
+
+static JSValueRef
 js_cb_exit(JSContextRef context,
            JSObjectRef function,
            JSObjectRef self,
@@ -430,6 +444,7 @@ main(int argc, char* argv[]) {
     register_native_method("DebugPrint", js_cb_debug_print);
     register_native_method("GetEnv", js_cb_get_env);
     register_native_method("GetDesktopFocus", js_cb_get_desktop_focus);
+    register_native_method("ToggleDock", js_cb_toggle_dock);
     register_native_method("LoadPlugin", js_cb_load_plugin);
     register_native_method("Exit", js_cb_exit);
 

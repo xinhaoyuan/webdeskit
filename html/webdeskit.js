@@ -43,6 +43,8 @@ di.update = function() {
 }
 
 $(document).ready(function() {
+    sys.ToggleDock();
+
     if (!sys.LoadPlugin("cmd", "webdeskit-plugin-cmd.so"))
     {
         sys.DebugPrint("Cannot load the cmd plugin");

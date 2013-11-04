@@ -12,26 +12,170 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/epoll.h>
+#include <assert.h>
 
 #include <sstream>
 #include <vector>
 #include <string>
 
 using namespace std;
-sighandler_t oldact;
-
-static void sigchld(int) { }
 
 int
-execute_and_get_output(vector<string> args, string &output) {
+fork_and_exec(char **argv, int fd_in, int fd_out, int fd_err) {
+    pid_t ret = fork();
+    if (ret < 0) return ret;
+    if (ret == 0) {
+        if (fd_in != STDIN_FILENO) {
+            if (fd_in < 0)
+                fd_in = open("/dev/null/", O_RDONLY);
+            if (dup2(fd_in, STDIN_FILENO) < 0)
+                _exit(-1);
+            close(fd_in);
+        }
+
+        int fd_null = open("/dev/null", O_WRONLY);
+        if (fd_out != STDOUT_FILENO) {
+            if (fd_out < 0)
+                fd_out = fd_null;
+            if (dup2(fd_out, STDOUT_FILENO) < 0)
+                _exit(-1);
+            if (fd_out != fd_null)
+                close(fd_out);
+        }
+
+        if (fd_err != STDERR_FILENO) {
+            if (fd_err < 0)
+                fd_err = fd_null;
+            if (dup2(fd_err, STDERR_FILENO) < 0)
+                _exit(-1);
+            if (fd_err != fd_null)
+                close(fd_err);
+        }
+
+        close(fd_null);
+        execvp(argv[0], argv);
+        // shall not return
+        _exit(-1);
+    } else {
+        return ret;
+    }
+}
+
+int
+execute_and_gather(char **argv, const std::string &input, std::string &output) {
+    int in_pfd[2];
+    int out_pfd[2];
+    int ep;
+    int err;
+    std::ostringstream ss;
+    pid_t c;
+
+    if ((ep = epoll_create1(EPOLL_CLOEXEC)) < 0) {
+        err = -errno;
+        goto onerr_nofd;
+    } else if ((err = pipe2(in_pfd, O_NONBLOCK | O_CLOEXEC)) < 0) {
+        close(ep);
+        goto onerr_nofd;
+    } else if ((err = pipe2(out_pfd, O_NONBLOCK | O_CLOEXEC)) < 0) {
+        close(in_pfd[0]);
+        close(in_pfd[1]);
+        close(ep);
+        goto onerr_nofd;
+    } else {
+        fcntl(in_pfd[0], F_SETFD, fcntl(in_pfd[0], F_GETFD) & ~FD_CLOEXEC);
+        fcntl(out_pfd[1], F_SETFD, fcntl(out_pfd[1], F_GETFD) & ~FD_CLOEXEC);
+        c = fork_and_exec(argv, in_pfd[0], out_pfd[1], -1);
+        close(in_pfd[0]);
+        close(out_pfd[1]);
+
+        if (c < 0) {
+            err = c;
+            goto onerr;
+        }
+        
+        struct epoll_event eev;
+
+        eev.data.fd = out_pfd[0];
+        eev.events = EPOLLIN | EPOLLET;
+        if (epoll_ctl(ep, EPOLL_CTL_ADD, out_pfd[0], &eev) != 0) {
+            err = -errno;
+            goto onerr;
+        }
+
+        eev.data.fd = in_pfd[1];
+        eev.events = EPOLLOUT | EPOLLET;
+        if (epoll_ctl(ep, EPOLL_CTL_ADD, in_pfd[1], &eev) != 0) {
+            err = -errno;
+            goto onerr;
+        }
     
+        ssize_t s;
+        char buf[1024];
+        size_t out_off = 0;
+    
+        while (true) {
+            int n = epoll_wait(ep, &eev, 1, -1);
+            if (n != 1) continue;
+            if (eev.data.fd == out_pfd[0]) {
+                if (!(eev.events & EPOLLIN)) {
+                    err = 0;
+                    goto succ;
+                }
+                // read
+                while (true) {
+                    s = read(out_pfd[0], buf, 1024);
+                    if (s == 0) goto succ;
+                    else if (s == -1) {
+                        err = -errno;
+                        if (err == -EAGAIN || errno == -EINTR) break;
+                        goto onerr;
+                    } else if (s < 0) {
+                        err = s;
+                        goto onerr;
+                    }
+                    ss.write(buf, s);
+                }
+            } else if (eev.data.fd == in_pfd[1]) {
+                if (!(eev.events & EPOLLOUT))
+                    continue;
+                // write
+                while (out_off < input.length()) {
+                    s = input.length() - out_off;
+                    s = write(in_pfd[1], input.c_str() + out_off,
+                              s > 1024 ? 1024 : s);
+                    if (s <= 0) break;
+                    out_off += s;
+                }
+                if (out_off == input.length()) {
+                    close(in_pfd[1]);
+                    in_pfd[1] = -1;
+                }
+            } else {
+                assert(0);
+            }
+        }
+    }
+    
+  succ:
+  onerr:
+    if (in_pfd[1] >= 0) close(in_pfd[1]);
+    close(out_pfd[0]);
+    close(ep);
+  onerr_nofd:
+    output = ss.str();
+    return err;
+}
+
+int
+execute_and_gather(const std::vector<std::string> &args, const std::string &input, std::string &output) {
     size_t buf_len = 0;
     for (int i = 0; i < args.size(); ++ i) {
         buf_len += args[i].length() + 1;
     }
-    char **argv = (char **)malloc(sizeof(char *) * (args.size() + 1));
-    char *buf = (char *)malloc(buf_len);
-    char *cur = buf;
+    char **argv = new char *[args.size() + 1];
+    char  *buf  = new char[buf_len];
+    char  *cur  = buf;
+    
     for (int i = 0; i < args.size(); ++ i) {
         memcpy(cur, args[i].c_str(), args[i].length());
         argv[i] = cur;
@@ -39,77 +183,12 @@ execute_and_get_output(vector<string> args, string &output) {
         *cur = 0; ++ cur;
     }
     argv[args.size()] = NULL;
-    
-    int pfd[2];
-    int err;
-    pid_t c;
-    // c = 0;
-    
-    // struct sigaction oldsig;
-    // struct sigaction sigact;
-    // sigact.sa_handler = sigchld;
-    // sigemptyset (&sigact.sa_mask);
-    // sigact.sa_flags = 0;
-    // sigact.sa_restorer = NULL;
-    
-    // sigaction(SIGCHLD, &sigact, &oldsig);
-    oldact = signal(SIGCHLD, sigchld);
-        
-    if ((err = pipe2(pfd, O_NONBLOCK)) < 0) {
-        goto onerr;
-    }
 
+    int r = execute_and_gather(argv, input, output);
     
-    c = fork();
-    if (c == 0)
-    {
-        int fdnull = open("/dev/null", O_WRONLY);
-        if (dup2(fdnull, STDIN_FILENO) < 0)
-            _exit(-1);
-        if (dup2(pfd[1], STDOUT_FILENO) < 0)
-            _exit(-1);
-        if (dup2(fdnull, STDERR_FILENO) < 0)
-            _exit(-1);
-        close(pfd[0]); close(pfd[1]); close(fdnull);
-        execvp(argv[0], argv);
-        _exit(-1);
-    } else {
-        close(pfd[1]);
-        
-        int ep = epoll_create(1);
-        struct epoll_event eev;
-        eev.events = EPOLLIN | EPOLLERR | EPOLLET;
-        epoll_ctl(ep, EPOLL_CTL_ADD, pfd[0], NULL);
-        
-        ssize_t s;
-        char buf[1024];
-        ostringstream ss;
-        while (true) {
-            epoll_wait(ep, &eev, 1, -1);
-            while (true) {
-                s = read(pfd[0], buf, 1024);
-                // fprintf(stderr, "got %d\n", s);
-                if (s == -EAGAIN) break;
-                else if (s == 0) goto succ;
-                else if (s < 0) {
-                    err = s;
-                    goto onerr;
-                }
-                ss.write(buf, s);
-            }
-        }
-      succ:
-        output = ss.str();
-        close(pfd[0]);
-    }
-
-  onerr:
-
-    // sigaction(SIGCHLD, &oldsig, &sigact);
-    signal(SIGCHLD, oldact);
-    free(argv);
-    free(buf);
-    return err;
+    delete[] buf;
+    delete[] argv;
+    return r;
 }
 
 webdeskit_host_interface_t host;
@@ -149,11 +228,12 @@ js_cb_cmd_output(JSContextRef context,
     }
 
     string output;
-    if (execute_and_get_output(args, output)) {
+    if (execute_and_gather(args, "", output)) {
         return JSValueMakeNull(context);
     }
 
-    return jsstring_object_from_string(context, output);
+    JSValueRef ret = jsstring_object_from_string(context, output);
+    return ret;
 }
 
 extern "C" {
