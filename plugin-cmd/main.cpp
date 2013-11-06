@@ -27,9 +27,10 @@ fork_and_exec(char **argv, int fd_in, int fd_out, int fd_err) {
     if (ret == 0) {
         if (fd_in != STDIN_FILENO) {
             if (fd_in < 0)
-                fd_in = open("/dev/null/", O_RDONLY);
-            if (dup2(fd_in, STDIN_FILENO) < 0)
+                fd_in = open("/dev/null", O_RDONLY);
+            if (dup2(fd_in, STDIN_FILENO) < 0) {
                 _exit(-1);
+            }
             close(fd_in);
         }
 
@@ -124,8 +125,10 @@ execute_and_gather(char **argv, const std::string &input, std::string &output) {
                 // read
                 while (true) {
                     s = read(out_pfd[0], buf, 1024);
-                    if (s == 0) goto succ;
-                    else if (s == -1) {
+                    if (s == 0) {
+                        err = 0;
+                        goto succ;
+                    } else if (s == -1) {
                         err = -errno;
                         if (err == -EAGAIN || errno == -EINTR) break;
                         goto onerr;
@@ -191,6 +194,31 @@ execute_and_gather(const std::vector<std::string> &args, const std::string &inpu
     return r;
 }
 
+int
+execute(const std::vector<std::string> &args) {
+    size_t buf_len = 0;
+    for (int i = 0; i < args.size(); ++ i) {
+        buf_len += args[i].length() + 1;
+    }
+    char **argv = new char *[args.size() + 1];
+    char  *buf  = new char[buf_len];
+    char  *cur  = buf;
+    
+    for (int i = 0; i < args.size(); ++ i) {
+        memcpy(cur, args[i].c_str(), args[i].length());
+        argv[i] = cur;
+        cur += args[i].length();
+        *cur = 0; ++ cur;
+    }
+    argv[args.size()] = NULL;
+
+    int r = fork_and_exec(argv, -1, -1, STDERR_FILENO);
+    
+    delete[] buf;
+    delete[] argv;
+    return r;
+}
+
 webdeskit_host_interface_t host;
 webdeskit_plugin_interface_s plugin =
 {
@@ -207,9 +235,54 @@ js_cb_cmd_output(JSContextRef context,
                  const JSValueRef argv[],
                  JSValueRef* exception)
 {
+    if (argc != 3)
+        return JSValueMakeNull(context);
+    if (!JSValueIsString(context, argv[2]))
+        return JSValueMakeNull(context);
+
+    int len = JSValueToNumber(context, argv[0], NULL);
+    JSObjectRef arr = JSValueToObject(context, argv[1], NULL);
+    string input;
+    copy_from_jsstring_object(context, argv[2], input);
+   
+
+    if (len == 0) return JSValueMakeNull(context);
+    vector<string> args;
+
+    int i;
+    for (i = 0; i < len; ++ i)
+    {
+        JSValueRef cur = JSObjectGetPropertyAtIndex(context, arr, i, NULL);
+        if (!JSValueIsString(context, cur)) {
+            return JSValueMakeNull(context);
+        }
+        string str;
+        copy_from_jsstring_object(context, cur, str);
+        JSValueUnprotect(context, cur);
+        
+        args.push_back(str);
+    }
+
+    string output;
+    if (execute_and_gather(args, input, output)) {
+        return JSValueMakeNull(context);
+    }
+
+    JSValueRef ret = jsstring_object_from_string(context, output);
+    return ret;
+}
+
+static JSValueRef
+js_cb_cmd(JSContextRef context,
+          JSObjectRef function,
+          JSObjectRef self,
+          size_t argc,
+          const JSValueRef argv[],
+          JSValueRef* exception)
+{
     if (argc != 2)
         return JSValueMakeNull(context);
-    
+
     int len = JSValueToNumber(context, argv[0], NULL);
     JSObjectRef arr = JSValueToObject(context, argv[1], NULL);
 
@@ -220,6 +293,9 @@ js_cb_cmd_output(JSContextRef context,
     for (i = 0; i < len; ++ i)
     {
         JSValueRef cur = JSObjectGetPropertyAtIndex(context, arr, i, NULL);
+        if (!JSValueIsString(context, cur)) {
+            return JSValueMakeNull(context);
+        }
         string str;
         copy_from_jsstring_object(context, cur, str);
         JSValueUnprotect(context, cur);
@@ -228,12 +304,9 @@ js_cb_cmd_output(JSContextRef context,
     }
 
     string output;
-    if (execute_and_gather(args, "", output)) {
-        return JSValueMakeNull(context);
-    }
-
-    JSValueRef ret = jsstring_object_from_string(context, output);
-    return ret;
+    execute(args);
+    
+    return JSValueMakeNull(context);
 }
 
 extern "C" {
@@ -244,6 +317,7 @@ extern "C" {
         host = host_interface;
         
         host->register_native_method("CmdOutput", js_cb_cmd_output);
+        host->register_native_method("Cmd", js_cb_cmd);
         
         return &plugin;
     }

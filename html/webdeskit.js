@@ -4,10 +4,10 @@ function copyToClipboard(s) {
     if (typeof s != "string") return;
 
     args = [sys.GetEnv("WEBDESKIT_PATH") + "/bin/clip-put", s];
-    sys.CmdOutput(args.length, args);
+    sys.CmdOutput(args.length, args, "");
 
     args = [sys.GetEnv("WEBDESKIT_PATH") + "/bin/notify-desktop", s + " copied to clipboard"];
-    sys.CmdOutput(args.length, args);
+    sys.CmdOutput(args.length, args, "");
 }
 
 di.change_sort_method = function() {
@@ -30,7 +30,7 @@ di.update = function() {
     var r;
 
     try {
-        r = sys.CmdOutput(args.length, args)
+        r = sys.CmdOutput(args.length, args, "")
         r = JSON.parse(r);
     } catch (e) { r = null; }
 
