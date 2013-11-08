@@ -180,6 +180,22 @@ gboolean context_menu_cb(WebKitWebView       *web_view,
                          gpointer             user_data)
 { return TRUE; }
 
+GtkWidget* create_plugin_widget_cb(WebKitWebView *web_view,
+                                   gchar         *mime,
+                                   gchar         *uri,
+                                   GHashTable    *param,
+                                   gpointer       user_data) {
+    fprintf(stderr, "create-plugin-widget mime=%s uri=%s\n", mime, uri);
+    GHashTableIter iter;
+    g_hash_table_iter_init(&iter, param);
+    gpointer key, value;
+    while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+        fprintf(stderr, "%s = %s\n", (gchar *)key, (gchar *)value);
+    }
+    return NULL;
+}
+
 static int
 register_native_method(const char *method_name, webdeskit_js_callback_f func)
 {
@@ -436,6 +452,7 @@ main(int argc, char* argv[]) {
                      G_CALLBACK(navigation_cb), NULL);
     g_signal_connect(web_view, "console-message", G_CALLBACK(console_message_cb), NULL);
     g_signal_connect(web_view, "context-menu", G_CALLBACK(context_menu_cb), NULL);
+    g_signal_connect(web_view, "create-plugin-widget", G_CALLBACK(create_plugin_widget_cb), NULL);
     g_signal_connect(main_window, "notify::is-active", G_CALLBACK(main_window_focus_cb), NULL);
     
     /* Show it and continue running until the window closes */
